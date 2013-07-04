@@ -1,0 +1,92 @@
+#!/usr/bin/ruby
+
+# Copyright (c) 2013, Fred Cassirer <fcassirer@gmail.com>
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met: 
+# 
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer. 
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution. 
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;ATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# 
+# The views and conclusions contained in the software and documentation are those
+# of the authors and should not be interpreted as representing official policies, 
+# either expressed or implied, of the FreeBSD Project.
+
+require 'rubygems'
+require 'watir-webdriver'
+require "net/smtp"
+require "time" # for rfc2822
+
+# Gmail/Email authentication info
+# sender
+from_addr = "<USERNAME>@gmail.com" 
+# receiver
+to_addr   = from_addr
+# Create a unique application password in your gmail account
+gmail_application_password = "<UNIQUE GOOGLE APPLICATION PASSWORD"
+# Lockstate user_email
+ls_email = from_addr
+# Lockstate user_password
+ls_password = "<LOCKSTATE WEB SITE PASSWORD"
+# Lockstate security questions
+ls_security = { 
+   "security_question_answer_1" => "<YOUR FIRST ANSWER>",
+   "security_question_answer_2" => "<YOUR SECOND ANSWER>",
+   "security_question_answer_3" => "<YOUR THIRD ANSWER>"
+}
+
+batterylog = "#{ENV['HOME']}/.lockstate-battery-level.log"
+
+b = Watir::Browser.new
+b.goto 'https://connect.devicewebmanager.com/users/sign_in'
+
+if b.text_field(:id => 'user_email').exists?
+    b.text_field(:id => 'user_email').set ls_email
+    b.text_field(:id => 'user_password').set ls_password
+    b.button(:name => 'commit').click
+end
+
+ls_security.each_key {|key|
+   if b.text_field(:id => key ).exists? 
+	b.text_field(:id => key).set ls_security[key]
+	b.button(:name => 'commit').click
+   end
+}
+
+blevel = b.ul(:class => "battery-level-list").attribute_value("data-battery-level")
+b.close
+
+File.open(batterylog, "a+") do |f|
+  f.write "#{Time.now.rfc2822} #{blevel}\n"
+end
+
+if (blevel.to_f < 6.0)
+    mail_content = <<END_OF_CONTENT
+From: #{from_addr}
+To: #{to_addr}
+Subject: Lockstate Battery Level Alert
+Date: #{Time.now.rfc2822}
+
+The battery level has fallen to #{blevel}
+END_OF_CONTENT
+
+    smtp = Net::SMTP.new("smtp.gmail.com",587)
+    smtp.enable_starttls
+    smtp.start("smtp.gmail.com",from_addr,gmail_application_password,:login) do
+        smtp.send_message(mail_content, from_addr, to_addr)
+    end
+end
