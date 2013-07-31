@@ -36,12 +36,12 @@ require "time" # for rfc2822
 from_addr = "<USERNAME>@gmail.com" 
 # receiver
 to_addr   = from_addr
-# Create a unique application password in your gmail account
-gmail_application_password = "<UNIQUE GOOGLE APPLICATION PASSWORD"
+# Create a unique application password in your gmail account via security settings
+gmail_application_password = "<UNIQUE GOOGLE APPLICATION PASSWORD>"
 # Lockstate user_email
 ls_email = from_addr
 # Lockstate user_password
-ls_password = "<LOCKSTATE WEB SITE PASSWORD"
+ls_password = "<LOCKSTATE WEB SITE PASSWORD>"
 # Lockstate security questions
 ls_security = { 
    "security_question_answer_1" => "<YOUR FIRST ANSWER>",
@@ -60,21 +60,63 @@ if b.text_field(:id => 'user_email').exists?
     b.button(:name => 'commit').click
 end
 
-ls_security.each_key {|key|
-   if b.text_field(:id => key ).exists? 
-	b.text_field(:id => key).set ls_security[key]
-	b.button(:name => 'commit').click
-   end
-}
+begin
+    ls_security.each_key {|key|
+       if b.text_field(:id => key ).exists? 
+            b.text_field(:id => key).set ls_security[key]
+            b.button(:name => 'commit').click
+       end
+    }
+rescue
+  b.close
+  $stderr.print "security key doesn't exist: " + $!
+    mail_content = <<END_OF_CONTENT
+From: #{from_addr}
+To: #{to_addr}
+Subject: ERROR:  Lockstate Battery Level Alert
+Date: #{Time.now.rfc2822}
 
-blevel = b.ul(:class => "battery-level-list").attribute_value("data-battery-level")
-b.close
+security key attribute not found.  $!
+END_OF_CONTENT
+
+    smtp = Net::SMTP.new("smtp.gmail.com",587)
+    smtp.enable_starttls
+    smtp.start("smtp.gmail.com",from_addr,gmail_application_password,:login) do
+        smtp.send_message(mail_content, from_addr, to_addr)
+    end
+    exit
+end
+
+begin
+
+    blevel = b.ul(:class => "battery-level-list").attribute_value("data-battery-level")
+    b.close
+
+rescue
+  $stderr.print "battery-level-list not found: " + $!
+    mail_content = <<END_OF_CONTENT
+From: #{from_addr}
+To: #{to_addr}
+Subject: ERROR:  Lockstate Battery Level Alert
+Date: #{Time.now.rfc2822}
+
+battery-level-list attribute not found.  $!
+END_OF_CONTENT
+
+    smtp = Net::SMTP.new("smtp.gmail.com",587)
+    smtp.enable_starttls
+    smtp.start("smtp.gmail.com",from_addr,gmail_application_password,:login) do
+        smtp.send_message(mail_content, from_addr, to_addr)
+    end
+   b.close
+   exit
+end
 
 File.open(batterylog, "a+") do |f|
   f.write "#{Time.now.rfc2822} #{blevel}\n"
 end
 
-if (blevel.to_f < 6.0)
+if (blevel.to_f < 3.5)
     mail_content = <<END_OF_CONTENT
 From: #{from_addr}
 To: #{to_addr}
@@ -90,3 +132,4 @@ END_OF_CONTENT
         smtp.send_message(mail_content, from_addr, to_addr)
     end
 end
+
